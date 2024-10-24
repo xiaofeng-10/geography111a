@@ -1,0 +1,143 @@
+---
+title: "Interactive and Statistical Maps of the California Household Travel Survey Data"
+author: "Xiaofeng Cai"
+output: html_document
+date: "2023-11-14"
+---
+
+```{r, include = FALSE}
+library(tidyverse)
+```
+
+# Section 1: Intro
+```{r, message = F}
+PersonData <- read_rds('Data/PersonData_111A.Rds')
+HHData <- read_rds('Data/HHData_111A.Rds')
+hh_bgDensity <- read_rds('Data/hh_bgDensity.Rds')
+
+personHHData <- left_join(PersonData, HHData) %>%
+  left_join(hh_bgDensity) %>% 
+  mutate(Sum_VMT = DriveAlone_Dist + Driveothers_Dist +Passenger_Dist) %>%
+  select(hhid, pnum, CTFIP, County, bg_group, Sum_Trips, Sum_PMT, Sum_VMT, bornUSA, starts_with("pers"))
+
+head(personHHData, 5)
+```
+
+```{r, message = F}
+library(sf)
+county_shp <- st_read("Data/counties/counties.shp")
+plot(county_shp["NAME"]) 
+```
+The unique colors correspond to the unique names of each county. However, there are repeat colors because the color palette available when plotting in such a simple way is limited.
+
+\newpage
+
+# Section 2: Interactive Maps of Traits
+```{r}
+library(mapview)
+prhh_aggreg <- personHHData %>% 
+  group_by(County, CTFIP) %>%
+  mutate(count = n()) %>% # the new column called 'count'
+  summarise_at(vars(-hhid, -pnum, -bg_group), mean)
+county_prhh_shp <- county_shp %>% left_join(prhh_aggreg)
+mapviewOptions(fgb = FALSE)
+mapview(county_prhh_shp, # the dataset to use 
+        zcol = "bornUSA", # tells it which column to map
+        legend = TRUE, # if FALSE, it won't show the legend 
+        label = as.character(county_prhh_shp$NAME), # tells it the column whose value you want to appear when you hover over a shape with your mouse
+        popup = leafpop::popupTable(x = county_prhh_shp, zcol = c("bornUSA", "count")))
+```
+
+```{r}
+mapview(county_prhh_shp, 
+        zcol = "Sum_PMT",
+        legend = TRUE,
+        label = as.character(county_prhh_shp$CTFIP),
+        popup = leafpop::popupTable(x = county_prhh_shp, zcol = c("County", "count", "Sum_PMT")))
+```
+Sum_PMT means: the total number of miles the person traveled on survey day.
+\newpage
+
+# Section 3: Making a lattice of interactive maps
+```{r}
+county_bg_aggreg <- personHHData %>% 
+  group_by(County, CTFIP, bg_group) %>%  # group by county, CTFIP, and also bg_group
+  mutate(count = n()) %>% 
+  summarise_at(vars(-hhid, -pnum), mean)
+county_bg_shp <- county_shp %>% 
+  merge(data.frame(bg_group = c("Urban", "Suburban", "Exurban", "Rural"))) %>% 
+  left_join(county_bg_aggreg)
+
+urban_TripMap <-  mapview(filter(county_bg_shp, bg_group == "Urban"), zcol = "Sum_Trips", legend = TRUE, popup = NULL, layer.name = "Urban Trips")
+suburb_TripMap <- mapview(filter(county_bg_shp, bg_group == "Suburban"), zcol = "Sum_Trips", legend = TRUE, popup = NULL, layer.name = "Suburban Trips")
+exurb_TripMap <- mapview(filter(county_bg_shp, bg_group == "Exurban"), zcol = "Sum_Trips", legend = TRUE, popup = NULL, layer.name = "Exurban Trips")
+rural_TripMap <- mapview(filter(county_bg_shp, bg_group == "Rural"), zcol = "Sum_Trips", legend = TRUE, popup = NULL, layer.name = "Rural Trip")
+
+library(leafsync)
+
+latticeview(urban_TripMap, suburb_TripMap, exurb_TripMap, rural_TripMap, sync = "all")
+```
+
+```{r}
+urban_PMTMap <- mapview(filter(county_bg_shp, bg_group == "Urban"), zcol = "Sum_PMT", legend = TRUE, popup = NULL, layer.name = "Urban PMT")
+suburb_PMTMap <- mapview(filter(county_bg_shp, bg_group == "Suburban"), zcol = "Sum_PMT", legend = TRUE, popup = NULL, layer.name = "Suburban PMT")
+exurb_PMTMap <- mapview(filter(county_bg_shp, bg_group == "Exurban"), zcol = "Sum_PMT", legend = TRUE, popup = NULL,layer.name = "Exurban PMT")
+rural_PMTMap <- mapview(filter(county_bg_shp, bg_group == "Rural"), zcol = "Sum_PMT", legend = TRUE, popup = NULL,layer.name = "Rural PMT")
+
+latticeview(urban_PMTMap, suburb_PMTMap, exurb_PMTMap, rural_PMTMap, sync = "all")
+```
+
+From map above, people in exurban areas of all counties overall take the most trips per day across the county, mainly because they often need to go to urban areas. Suburban areas also see a lot of trips since it is easier for people there to get to the city. In contrast, people in rural areas have fewer trips because it is inconvenient for them to drive to the city. Urban and suburban areas travel fewer miles over all counties compared to exurban and rural areas, because it takes longer for people in exurban and rural areas to reach places like the supermarket.
+
+```{r}
+urban_persWhiteMap <- mapview(filter(county_bg_shp, bg_group == "Urban"), zcol = "persWhite", legend = TRUE, popup = NULL, layer.name = "Urban persWhite")
+
+suburb_persWhiteMap <- mapview(filter(county_bg_shp, bg_group == "Suburban"), zcol = "persWhite", legend = TRUE, popup = NULL, layer.name = "Suburban persWhite")
+
+exurb_persWhiteMap <- mapview(filter(county_bg_shp, bg_group == "Exurban"), zcol = "persWhite", legend = TRUE, popup = NULL,layer.name = "Exurban persWhite")
+
+rural_persWhiteMap <- mapview(filter(county_bg_shp, bg_group == "Rural"), zcol = "persWhite", legend = TRUE, popup = NULL,layer.name = "Rural persWhite")
+
+latticeview(urban_persWhiteMap, suburb_persWhiteMap, exurb_persWhiteMap, rural_persWhiteMap, sync = "all")
+```
+
+From map above, white people have a significant population in urban areas, especially in counties around Los Angeles, San Diego, and San Francisco. Many white people also prefer living in rural areas around Bakersfield. And the white population in suburban areas overall is the lowest.
+
+# Section 4: Making a static map
+```{r}
+#require(maps) || install.packages("maps", dependencies = TRUE)
+library(maps)
+
+county <- ggplot2::map_data("county", region = "california") # get the CA county data
+
+county_prhh <- prhh_aggreg %>% 
+  mutate(subregion = tolower(County)) %>% 
+  full_join(county, by = "subregion")  # join two datasets by subregion column (it has the county names)
+
+county_bg <- merge(county, data.frame(bg_group = c("Urban", "Suburban", "Exurban", "Rural")))
+
+county_bg_all <- county_bg_aggreg %>% 
+  mutate(subregion = tolower(County)) %>% 
+  full_join(county_bg, by = c("subregion", "bg_group"))
+
+ggplot(county_bg_all) +
+  geom_polygon(aes(x = long, y = lat, group = subregion, fill = Sum_PMT), colour = "white") +
+  scale_fill_distiller(palette = "YlGnBu", direction = 1) +
+  facet_wrap(vars(bg_group), nrow = 2) +  # multi-panel plots using facet_wrap(), plot in 2 rows
+  ggtitle("Total PMT in California at County-level") + 
+  theme_void() +
+  theme(legend.position="bottom")
+
+```
+
+# Section 5: Making a lattice of static maps 
+```{r}
+ggplot(county_bg_all) +
+  geom_polygon(aes(x = long, y = lat, group = subregion, fill = Sum_VMT), colour = "white") +
+  scale_fill_distiller(palette = "PuBu", direction = 1) +
+  facet_wrap(vars(bg_group), nrow = 2) +  
+  ggtitle("Total VMT in California at County-level") + 
+  theme_void() +
+  theme(legend.position="bottom")
+```
+
